@@ -8,6 +8,11 @@
 
 ## Steps to reproduce
 
+Full runnable reproduction:
+https://github.com/BvG-Gynzy/flutter_web_input_attrs_poc
+
+Alternatively, follow the inline steps below.
+
 1. Create a Flutter web app with a `TextField` configured to opt out of
    keyboard suggestions and auto-capitalization:
 
@@ -198,6 +203,12 @@ for any other IME-related code that branches on `operatingSystem` and
 currently makes the wrong call on Chromebook.
 
 ## Code sample
+
+A full runnable repository (with `package:web` and a `focusin` listener
+that surfaces the attributes back into the UI, so the bug is visible
+without DevTools) is available at
+https://github.com/BvG-Gynzy/flutter_web_input_attrs_poc. The minimal
+inline sample below is sufficient to demonstrate the bug:
 
 <details open><summary>Code sample</summary>
 
