@@ -8,8 +8,12 @@
 
 ## Steps to reproduce
 
-Full runnable reproduction:
-https://github.com/BvG-Gynzy/flutter_web_input_attrs_poc
+**Live demo (no setup):** https://bvg-gynzy.github.io/flutter_web_input_attrs_poc/
+— open this URL on a Chromebook (with the on-screen keyboard enabled)
+to see the bug end-to-end, or on desktop Chrome to verify the
+attribute-level mis-configuration via DevTools.
+
+Full source: https://github.com/BvG-Gynzy/flutter_web_input_attrs_poc
 
 Alternatively, follow the inline steps below.
 

@@ -17,6 +17,12 @@ virtual keyboards (Gboard OSK):
 
 ## Repro
 
+**Live demo:** https://bvg-gynzy.github.io/flutter_web_input_attrs_poc/
+(open from any device — particularly useful for testing on a real
+Chromebook OSK).
+
+Or run locally:
+
 ```bash
 flutter run -d chrome
 ```
