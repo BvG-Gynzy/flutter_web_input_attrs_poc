@@ -1,12 +1,13 @@
-// Minimal reproduction: Flutter web ignores TextCapitalization and the
-// autocomplete/spellcheck side of `enableSuggestions` when rendering its
-// hidden <input class="flt-text-editing"> element.
+// Minimal reproduction: Flutter web does not write `autocapitalize` on
+// its hidden <input class="flt-text-editing"> element, so the platform
+// IME (e.g. Chromebook OSK) ignores TextCapitalization.none and
+// auto-capitalizes the first letter.
 //
 // Run: `flutter run -d chrome`. Tap a field — captured DOM attributes
 // from Flutter's hidden editing input appear in the live read-out panel.
-//
-// Expected: autocapitalize="none", autocomplete="off", spellcheck="false".
-// Actual:   autocapitalize is missing, autocomplete="on", spellcheck unset.
+// Use the toggle to apply the workaround (stamp autocapitalize="none"
+// on focus) and observe the difference both in the panel and on a
+// Chromebook OSK.
 
 import 'dart:js_interop';
 
@@ -15,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 final _captured = ValueNotifier<Map<String, String?>>(const {});
+final _workaroundEnabled = ValueNotifier<bool>(false);
 
 void main() {
   if (kIsWeb) {
@@ -23,10 +25,16 @@ void main() {
       (web.Event event) {
         final target = event.target;
         if (target == null) return;
-        // Match Flutter's hidden editing element by class.
         final el = target as web.Element;
         final className = el.getAttribute('class') ?? '';
         if (!className.contains('flt-text-editing')) return;
+
+        // Apply the workaround first (if enabled) so the captured
+        // snapshot below reflects the final state of the element.
+        if (_workaroundEnabled.value) {
+          el.setAttribute('autocapitalize', 'none');
+        }
+
         _captured.value = {
           'autocapitalize': el.getAttribute('autocapitalize'),
           'autocorrect': el.getAttribute('autocorrect'),
@@ -57,7 +65,7 @@ class PocHome extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Flutter web input-attribute repro')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -83,6 +91,8 @@ class PocHome extends StatelessWidget {
               ),
             ),
             SizedBox(height: 32),
+            _WorkaroundToggle(),
+            SizedBox(height: 16),
             _CapturedAttributesPanel(),
           ],
         ),
@@ -116,6 +126,56 @@ class _Section extends StatelessWidget {
         const SizedBox(height: 8),
         child,
       ],
+    );
+  }
+}
+
+class _WorkaroundToggle extends StatelessWidget {
+  const _WorkaroundToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _workaroundEnabled,
+      builder: (context, enabled, _) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: enabled ? Colors.green.shade50 : Colors.amber.shade50,
+            border: Border.all(
+              color: enabled ? Colors.green.shade300 : Colors.amber.shade300,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Apply workaround on focus',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      enabled
+                          ? 'Stamping autocapitalize="none" on focus. '
+                                'Refocus a field to see the effect.'
+                          : 'Off — observing Flutter\'s default behavior.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: enabled,
+                onChanged: (v) => _workaroundEnabled.value = v,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
