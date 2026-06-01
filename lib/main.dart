@@ -5,9 +5,20 @@
 //
 // Run: `flutter run -d chrome`. Tap a field — captured DOM attributes
 // from Flutter's hidden editing input appear in the live read-out panel.
-// Use the toggle to apply the workaround (stamp autocapitalize="none"
-// on focus) and observe the difference both in the panel and on a
-// Chromebook OSK.
+// Use the toggle to apply the workaround and observe the difference both
+// in the panel and on a Chromebook OSK.
+//
+// The workaround stamps autocapitalize="none". A post-frame / focusin
+// stamp alone loses a race on the FIRST focus of a field: Flutter creates
+// and focuses the input in one sequence and the OSK reads the
+// still-missing attribute before the stamp lands (later focuses reuse the
+// prior value, so the bug is first-focus-only). To win the race a
+// MutationObserver stamps the input the instant Flutter inserts it, before
+// .focus() completes.
+//
+// NOTE: this build uses the MutationObserver ONLY (no focusin fallback),
+// to verify whether insertion-time stamping alone fixes the first-focus
+// race on the Chromebook OSK.
 
 import 'dart:js_interop';
 
@@ -18,8 +29,35 @@ import 'package:web/web.dart' as web;
 final _captured = ValueNotifier<Map<String, String?>>(const {});
 final _workaroundEnabled = ValueNotifier<bool>(false);
 
+void _stampIfEditingInput(web.Element el) {
+  final target = (el.getAttribute('class') ?? '').contains('flt-text-editing')
+      ? el
+      : el.querySelector('.flt-text-editing');
+  target?.setAttribute('autocapitalize', 'none');
+}
+
 void main() {
   if (kIsWeb) {
+    // Primary fix: stamp the editing input the moment Flutter inserts it,
+    // before the OSK reads attributes on focus.
+    web.MutationObserver(
+      (JSArray<web.MutationRecord> records, web.MutationObserver _) {
+        if (!_workaroundEnabled.value) return;
+        for (final record in records.toDart) {
+          final added = record.addedNodes;
+          for (var i = 0; i < added.length; i++) {
+            final node = added.item(i);
+            if (node != null && node.isA<web.Element>()) {
+              _stampIfEditingInput(node as web.Element);
+            }
+          }
+        }
+      }.toJS,
+    ).observe(
+      web.document.body!,
+      web.MutationObserverInit(childList: true, subtree: true),
+    );
+
     web.document.addEventListener(
       'focusin',
       (web.Event event) {
@@ -29,12 +67,8 @@ void main() {
         final className = el.getAttribute('class') ?? '';
         if (!className.contains('flt-text-editing')) return;
 
-        // Apply the workaround first (if enabled) so the captured
-        // snapshot below reflects the final state of the element.
-        if (_workaroundEnabled.value) {
-          el.setAttribute('autocapitalize', 'none');
-        }
-
+        // Capture only — the MutationObserver does the stamping at DOM
+        // insertion. (Testing insertion-only first; no focusin fallback.)
         _captured.value = {
           'autocapitalize': el.getAttribute('autocapitalize'),
           'autocorrect': el.getAttribute('autocorrect'),
@@ -160,8 +194,9 @@ class _WorkaroundToggle extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       enabled
-                          ? 'Stamping autocapitalize="none" on focus. '
-                                'Refocus a field to see the effect.'
+                          ? 'Stamping autocapitalize="none" at DOM insertion '
+                                '(MutationObserver only). Refocus a field to '
+                                'see the effect.'
                           : 'Off — observing Flutter\'s default behavior.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
