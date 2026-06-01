@@ -36,6 +36,18 @@ void _stampIfEditingInput(web.Element el) {
   target?.setAttribute('autocapitalize', 'none');
 }
 
+/// Retroactively stamps any editing input already in the DOM. Needed only
+/// in this PoC: toggling the workaround on does not make Flutter reinsert
+/// (or refocus) an element the observer already skipped while it was off.
+/// The observer still handles fresh insertions, so the first-focus race is
+/// genuinely exercised whenever the toggle is enabled before focusing.
+void _stampExistingInputs() {
+  final nodes = web.document.querySelectorAll('.flt-text-editing');
+  for (var i = 0; i < nodes.length; i++) {
+    (nodes.item(i) as web.Element?)?.setAttribute('autocapitalize', 'none');
+  }
+}
+
 void main() {
   if (kIsWeb) {
     // Primary fix: stamp the editing input the moment Flutter inserts it,
@@ -205,7 +217,10 @@ class _WorkaroundToggle extends StatelessWidget {
               ),
               Switch(
                 value: enabled,
-                onChanged: (v) => _workaroundEnabled.value = v,
+                onChanged: (v) {
+                  _workaroundEnabled.value = v;
+                  if (v && kIsWeb) _stampExistingInputs();
+                },
               ),
             ],
           ),
