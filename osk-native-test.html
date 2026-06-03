@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chromebook OSK native input test</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; color: #222; }
+  h1 { font-size: 18px; }
+  p.intro { color: #555; }
+  .case { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin: 12px 0; }
+  .case h2 { font-size: 14px; margin: 0 0 6px; }
+  .case code { font-size: 12px; color: #555; word-break: break-all; }
+  .case input, .case textarea {
+    width: 100%; box-sizing: border-box; font-size: 18px;
+    padding: 10px; margin-top: 8px; border: 1px solid #90a4ae; border-radius: 6px;
+  }
+  .group { font-weight: 600; margin: 24px 0 4px; }
+  .hint { font-size: 12px; color: #777; }
+</style>
+</head>
+<body>
+  <h1>Chromebook OSK native input test</h1>
+  <p class="intro">
+    Pure HTML — no Flutter, no framework. On a Chromebook with the on-screen
+    keyboard, focus each field, type one letter <em>without</em> touching
+    Shift, and note (a) whether the first character is capital and (b)
+    whether the suggestion strip appears. This isolates what the Chrome OS
+    OSK actually honors.
+  </p>
+
+  <div class="group">A. Capitalization (watch the first typed letter)</div>
+
+  <div class="case">
+    <h2>A1 — autocapitalize="none" (spec value)</h2>
+    <code>&lt;input autocapitalize="none"&gt;</code>
+    <input autocapitalize="none" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>A2 — autocapitalize="off" (legacy synonym)</h2>
+    <code>&lt;input autocapitalize="off"&gt;</code>
+    <input autocapitalize="off" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>A3 — type="email" (email type usually disables autocap)</h2>
+    <code>&lt;input type="email" autocapitalize="none"&gt;</code>
+    <input type="email" autocapitalize="none" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>A4 — type="url"</h2>
+    <code>&lt;input type="url" autocapitalize="none"&gt;</code>
+    <input type="url" autocapitalize="none" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>A5 — inputmode="email"</h2>
+    <code>&lt;input inputmode="email" autocapitalize="none"&gt;</code>
+    <input inputmode="email" autocapitalize="none" placeholder="type here" />
+  </div>
+
+  <div class="group">B. Suggestion strip (watch the bar above the keys)</div>
+
+  <div class="case">
+    <h2>B1 — autocomplete + spellcheck off</h2>
+    <code>&lt;input autocapitalize="none" autocomplete="off" spellcheck="false"&gt;</code>
+    <input autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>B2 — type="search" (search often hides predictions)</h2>
+    <code>&lt;input type="search" autocapitalize="none"&gt;</code>
+    <input type="search" autocapitalize="none" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>B3 — autocomplete="one-time-code"</h2>
+    <code>&lt;input autocapitalize="none" autocomplete="one-time-code"&gt;</code>
+    <input autocapitalize="none" autocomplete="one-time-code" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>B4 — type="email" + autocomplete off</h2>
+    <code>&lt;input type="email" autocomplete="off" spellcheck="false"&gt;</code>
+    <input type="email" autocomplete="off" spellcheck="false" placeholder="type here" />
+  </div>
+
+  <div class="group">C. Kitchen sink (everything that might suppress both)</div>
+
+  <div class="case">
+    <h2>C1 — all suppressors combined</h2>
+    <code>&lt;input type="search" autocapitalize="none" autocomplete="off" spellcheck="false" autocorrect="off"&gt;</code>
+    <input type="search" autocapitalize="none" autocomplete="off" spellcheck="false" autocorrect="off" placeholder="type here" />
+  </div>
+
+  <div class="case">
+    <h2>C2 — textarea variant</h2>
+    <code>&lt;textarea autocapitalize="none" autocomplete="off" spellcheck="false"&gt;</code>
+    <textarea autocapitalize="none" autocomplete="off" spellcheck="false" rows="2" placeholder="type here"></textarea>
+  </div>
+
+  <p class="hint">
+    Tip: reload between fields if the OSK keeps its state. Record which case
+    (if any) starts lowercase AND hides the suggestion strip.
+  </p>
+</body>
+</html>
