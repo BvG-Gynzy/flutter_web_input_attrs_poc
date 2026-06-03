@@ -36,8 +36,46 @@ final _activeField = ValueNotifier<_Field>(_Field.none);
 final _capturedPlain = ValueNotifier<String?>(null);
 final _capturedWorkaround = ValueNotifier<String?>(null);
 
+/// Insertion-time observer (stored so it is not garbage-collected).
+// ignore: unused_element
+web.MutationObserver? _observer;
+
+/// Finds the flt-text-editing input in [el] or its descendants.
+web.Element? _editingInput(web.Element el) {
+  if ((el.getAttribute('class') ?? '').contains('flt-text-editing')) return el;
+  return el.querySelector('.flt-text-editing');
+}
+
 void main() {
   if (kIsWeb) {
+    // Primary fix for the hide -> reshow case: Flutter recreates its
+    // editing element on blur, so on reshow it has no autocapitalize and
+    // the OSK reads the missing attribute (caps) before focusin can stamp
+    // it. Stamp at DOM-insertion instead — before .focus() and the OSK
+    // read — so the fresh element behaves like a persistent native input.
+    // _activeField is set by the field's FocusNode listener *before*
+    // Flutter inserts the element, so we know which field it belongs to.
+    _observer =
+        web.MutationObserver(
+          (JSArray<web.MutationRecord> records, _) {
+            if (_activeField.value != _Field.workaround) return;
+            for (final record in records.toDart) {
+              final added = record.addedNodes;
+              for (var i = 0; i < added.length; i++) {
+                final node = added.item(i);
+                if (node != null && node.isA<web.Element>()) {
+                  _editingInput(
+                    node as web.Element,
+                  )?.setAttribute('autocapitalize', 'none');
+                }
+              }
+            }
+          }.toJS,
+        )..observe(
+          web.document.documentElement!,
+          web.MutationObserverInit(childList: true, subtree: true),
+        );
+
     web.document.addEventListener(
       'focusin',
       (web.Event event) {
@@ -50,7 +88,7 @@ void main() {
 
         switch (_activeField.value) {
           case _Field.workaround:
-            // The workaround: stamp the attribute Flutter omitted.
+            // Fallback stamp (element reuse) + capture.
             el.setAttribute('autocapitalize', 'none');
             _capturedWorkaround.value = el.getAttribute('autocapitalize');
           case _Field.plain:
