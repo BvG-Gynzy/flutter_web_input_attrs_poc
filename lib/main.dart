@@ -57,7 +57,7 @@ void main() {
     // Flutter inserts the element, so we know which field it belongs to.
     _observer =
         web.MutationObserver(
-          (JSArray<web.MutationRecord> records, _) {
+          (JSArray<web.MutationRecord> records, web.MutationObserver _) {
             if (_activeField.value != _Field.workaround) return;
             for (final record in records.toDart) {
               final added = record.addedNodes;
