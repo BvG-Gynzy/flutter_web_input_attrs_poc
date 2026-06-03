@@ -31,6 +31,19 @@
 
   <div class="group">A. Capitalization (watch the first typed letter)</div>
 
+  <p class="hint">
+    IMPORTANT: the OSK carries its caps/shift state between fields, so test
+    A0 <strong>first on a fresh reload</strong> — focusing a "none" field
+    beforehand can leave the keyboard in lowercase and mask the default.
+    Reload the page before each capitalization test for a clean state.
+  </p>
+
+  <div class="case">
+    <h2>A0 — no autocapitalize attribute (Flutter's default — should CAPITALIZE)</h2>
+    <code>&lt;input&gt;</code>
+    <input placeholder="type here" />
+  </div>
+
   <div class="case">
     <h2>A1 — autocapitalize="none" (spec value)</h2>
     <code>&lt;input autocapitalize="none"&gt;</code>
