@@ -36,68 +36,8 @@ final _activeField = ValueNotifier<_Field>(_Field.none);
 final _capturedPlain = ValueNotifier<String?>(null);
 final _capturedWorkaround = ValueNotifier<String?>(null);
 
-/// Insertion-time observer (stored so it is not garbage-collected).
-// ignore: unused_element
-web.MutationObserver? _observer;
-
-void _log(String msg) => web.console.log('[osk] $msg'.toJS);
-
-/// Finds the flt-text-editing input in [el] or its descendants.
-web.Element? _editingInput(web.Element el) {
-  if ((el.getAttribute('class') ?? '').contains('flt-text-editing')) return el;
-  return el.querySelector('.flt-text-editing');
-}
-
 void main() {
   if (kIsWeb) {
-    // EXPERIMENT: autocapitalize inherits from ancestors / the form owner.
-    // The focused editing element has no own attribute when the OSK reads
-    // it (see logs), so per-element stamping always loses the race. Setting
-    // the attribute on persistent ancestors means freshly-created inputs
-    // inherit "none" and are already correct at focus time.
-    web.document.documentElement?.setAttribute('autocapitalize', 'none');
-    web.document.body?.setAttribute('autocapitalize', 'none');
-
-    // DIAGNOSTIC build: log the editing-element lifecycle on focus / blur /
-    // reshow so we can see why insertion-time stamping does not stick.
-    _observer =
-        web.MutationObserver(
-          (JSArray<web.MutationRecord> records, web.MutationObserver _) {
-            for (final record in records.toDart) {
-              final added = record.addedNodes;
-              for (var i = 0; i < added.length; i++) {
-                final node = added.item(i);
-                if (node == null || !node.isA<web.Element>()) continue;
-                final input = _editingInput(node as web.Element);
-                if (input == null) continue;
-                _log(
-                  'INSERT input; activeField=${_activeField.value}; '
-                  'autocap-before=${input.getAttribute('autocapitalize')}',
-                );
-                input.setAttribute('autocapitalize', 'none');
-                // Also stamp the parent (form/host) so inputs that inherit
-                // from their form owner get "none" too.
-                input.parentElement?.setAttribute('autocapitalize', 'none');
-                _log(
-                  '  stamped; autocap-after='
-                  '${input.getAttribute('autocapitalize')}',
-                );
-              }
-              final removed = record.removedNodes;
-              for (var i = 0; i < removed.length; i++) {
-                final node = removed.item(i);
-                if (node == null || !node.isA<web.Element>()) continue;
-                if (_editingInput(node as web.Element) != null) {
-                  _log('REMOVE input');
-                }
-              }
-            }
-          }.toJS,
-        )..observe(
-          web.document.documentElement!,
-          web.MutationObserverInit(childList: true, subtree: true),
-        );
-
     web.document.addEventListener(
       'focusin',
       (web.Event event) {
@@ -107,29 +47,16 @@ void main() {
         if (!(el.getAttribute('class') ?? '').contains('flt-text-editing')) {
           return;
         }
-        _log(
-          'FOCUSIN; activeField=${_activeField.value}; '
-          'autocap-before=${el.getAttribute('autocapitalize')}',
-        );
-        el.setAttribute('autocapitalize', 'none');
-        if (_activeField.value == _Field.workaround) {
-          _capturedWorkaround.value = el.getAttribute('autocapitalize');
-        } else if (_activeField.value == _Field.plain) {
-          _capturedPlain.value = el.getAttribute('autocapitalize');
-        }
-      }.toJS,
-    );
 
-    web.document.addEventListener(
-      'focusout',
-      (web.Event event) {
-        final target = event.target;
-        if (target != null &&
-            target.isA<web.Element>() &&
-            ((target as web.Element).getAttribute('class') ?? '').contains(
-              'flt-text-editing',
-            )) {
-          _log('FOCUSOUT input');
+        switch (_activeField.value) {
+          case _Field.workaround:
+            // The workaround: stamp the attribute Flutter omitted.
+            el.setAttribute('autocapitalize', 'none');
+            _capturedWorkaround.value = el.getAttribute('autocapitalize');
+          case _Field.plain:
+            _capturedPlain.value = el.getAttribute('autocapitalize');
+          case _Field.none:
+            break;
         }
       }.toJS,
     );
