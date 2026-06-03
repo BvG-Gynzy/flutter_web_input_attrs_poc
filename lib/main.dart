@@ -50,6 +50,14 @@ web.Element? _editingInput(web.Element el) {
 
 void main() {
   if (kIsWeb) {
+    // EXPERIMENT: autocapitalize inherits from ancestors / the form owner.
+    // The focused editing element has no own attribute when the OSK reads
+    // it (see logs), so per-element stamping always loses the race. Setting
+    // the attribute on persistent ancestors means freshly-created inputs
+    // inherit "none" and are already correct at focus time.
+    web.document.documentElement?.setAttribute('autocapitalize', 'none');
+    web.document.body?.setAttribute('autocapitalize', 'none');
+
     // DIAGNOSTIC build: log the editing-element lifecycle on focus / blur /
     // reshow so we can see why insertion-time stamping does not stick.
     _observer =
@@ -67,6 +75,9 @@ void main() {
                   'autocap-before=${input.getAttribute('autocapitalize')}',
                 );
                 input.setAttribute('autocapitalize', 'none');
+                // Also stamp the parent (form/host) so inputs that inherit
+                // from their form owner get "none" too.
+                input.parentElement?.setAttribute('autocapitalize', 'none');
                 _log(
                   '  stamped; autocap-after='
                   '${input.getAttribute('autocapitalize')}',
