@@ -3,11 +3,21 @@
 // IME (e.g. Chromebook OSK) ignores TextCapitalization.none and
 // auto-capitalizes the first letter.
 //
-// Run: `flutter run -d chrome`. Tap a field — captured DOM attributes
-// from Flutter's hidden editing input appear in the live read-out panel.
-// Use the toggle to apply the workaround (stamp autocapitalize="none"
-// on focus) and observe the difference both in the panel and on a
-// Chromebook OSK.
+// Run: `flutter run -d chrome`. Both fields are configured identically on
+// the Dart side (TextCapitalization.none). The only difference is the
+// workaround:
+//
+//   • Field 1 — Flutter default. autocapitalize is never written, so the
+//     Chromebook OSK auto-capitalizes the first letter.
+//   • Field 2 — workaround applied. We stamp autocapitalize="none" on the
+//     hidden editing input when this field is focused, so the OSK starts
+//     in lowercase.
+//
+// Each field reads back the autocapitalize attribute Flutter's editing
+// input actually carries, so the difference is visible without DevTools.
+// Flutter reuses a single editing input across fields, so we track which
+// field is active via its FocusNode and let the DOM focusin handler decide
+// whether to stamp.
 
 import 'dart:js_interop';
 
@@ -15,8 +25,16 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
-final _captured = ValueNotifier<Map<String, String?>>(const {});
-final _workaroundEnabled = ValueNotifier<bool>(false);
+enum _Field { none, plain, workaround }
+
+/// Which Flutter field currently holds focus. Set by each field's
+/// FocusNode listener before Flutter creates/focuses the platform input.
+final _activeField = ValueNotifier<_Field>(_Field.none);
+
+/// Per-field snapshot of the `autocapitalize` attribute on the hidden
+/// editing input, captured on focusin.
+final _capturedPlain = ValueNotifier<String?>(null);
+final _capturedWorkaround = ValueNotifier<String?>(null);
 
 void main() {
   if (kIsWeb) {
@@ -26,22 +44,20 @@ void main() {
         final target = event.target;
         if (target == null) return;
         final el = target as web.Element;
-        final className = el.getAttribute('class') ?? '';
-        if (!className.contains('flt-text-editing')) return;
-
-        // Apply the workaround first (if enabled) so the captured
-        // snapshot below reflects the final state of the element.
-        if (_workaroundEnabled.value) {
-          el.setAttribute('autocapitalize', 'none');
+        if (!(el.getAttribute('class') ?? '').contains('flt-text-editing')) {
+          return;
         }
 
-        _captured.value = {
-          'autocapitalize': el.getAttribute('autocapitalize'),
-          'autocorrect': el.getAttribute('autocorrect'),
-          'autocomplete': el.getAttribute('autocomplete'),
-          'spellcheck': el.getAttribute('spellcheck'),
-          'inputmode': el.getAttribute('inputmode'),
-        };
+        switch (_activeField.value) {
+          case _Field.workaround:
+            // The workaround: stamp the attribute Flutter omitted.
+            el.setAttribute('autocapitalize', 'none');
+            _capturedWorkaround.value = el.getAttribute('autocapitalize');
+          case _Field.plain:
+            _capturedPlain.value = el.getAttribute('autocapitalize');
+          case _Field.none:
+            break;
+        }
       }.toJS,
     );
   }
@@ -53,7 +69,7 @@ class PocApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const MaterialApp(
-    title: 'Flutter web input-attribute repro',
+    title: 'Flutter web autocapitalize repro',
     home: PocHome(),
   );
 }
@@ -64,36 +80,29 @@ class PocHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Flutter web input-attribute repro')),
+      appBar: AppBar(title: const Text('Flutter web autocapitalize repro')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: const [
-            _Section(
-              title: 'TextField with TextCapitalization.none',
-              expected: 'autocapitalize="none" on the editing <input>',
-              child: TextField(
-                textCapitalization: TextCapitalization.none,
-                decoration: InputDecoration(labelText: 'Type here'),
-              ),
+          children: [
+            const Text(
+              'Both fields use TextCapitalization.none. Tap each one and '
+              'compare the autocapitalize attribute (and, on a Chromebook, '
+              'whether the on-screen keyboard starts in lowercase).',
             ),
-            SizedBox(height: 24),
-            _Section(
-              title:
-                  'TextField with autocorrect: false, enableSuggestions: false',
-              expected:
-                  'autocomplete="off" and spellcheck="false" on the editing <input>',
-              child: TextField(
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: InputDecoration(labelText: 'Type here'),
-              ),
+            const SizedBox(height: 24),
+            _DemoField(
+              field: _Field.plain,
+              title: '1. Flutter default (no workaround)',
+              captured: _capturedPlain,
             ),
-            SizedBox(height: 32),
-            _WorkaroundToggle(),
-            SizedBox(height: 16),
-            _CapturedAttributesPanel(),
+            const SizedBox(height: 24),
+            _DemoField(
+              field: _Field.workaround,
+              title: '2. Workaround applied on focus',
+              captured: _capturedWorkaround,
+            ),
           ],
         ),
       ),
@@ -101,127 +110,87 @@ class PocHome extends StatelessWidget {
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section({
+/// A `TextField` (always `TextCapitalization.none`) that marks itself as
+/// the active field on focus and shows the resulting `autocapitalize`
+/// attribute Flutter's editing input carries.
+class _DemoField extends StatefulWidget {
+  const _DemoField({
+    required this.field,
     required this.title,
-    required this.expected,
-    required this.child,
+    required this.captured,
   });
 
+  final _Field field;
   final String title;
-  final String expected;
-  final Widget child;
+  final ValueNotifier<String?> captured;
+
+  @override
+  State<_DemoField> createState() => _DemoFieldState();
+}
+
+class _DemoFieldState extends State<_DemoField> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode()..addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_onFocusChange)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (_focusNode.hasFocus) {
+      _activeField.value = widget.field;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          'Expected: $expected',
-          style: Theme.of(context).textTheme.bodySmall,
+    final isWorkaround = widget.field == _Field.workaround;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isWorkaround ? Colors.green.shade50 : Colors.amber.shade50,
+        border: Border.all(
+          color: isWorkaround ? Colors.green.shade300 : Colors.amber.shade300,
         ),
-        const SizedBox(height: 8),
-        child,
-      ],
-    );
-  }
-}
-
-class _WorkaroundToggle extends StatelessWidget {
-  const _WorkaroundToggle();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _workaroundEnabled,
-      builder: (context, enabled, _) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: enabled ? Colors.green.shade50 : Colors.amber.shade50,
-            border: Border.all(
-              color: enabled ? Colors.green.shade300 : Colors.amber.shade300,
-            ),
-            borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          TextField(
+            focusNode: _focusNode,
+            textCapitalization: TextCapitalization.none,
+            decoration: const InputDecoration(labelText: 'Type here'),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Apply workaround on focus',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      enabled
-                          ? 'Stamping autocapitalize="none" on focus. '
-                                'Refocus a field to see the effect.'
-                          : 'Off — observing Flutter\'s default behavior.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: enabled,
-                onChanged: (v) => _workaroundEnabled.value = v,
-              ),
-            ],
+          const SizedBox(height: 12),
+          ValueListenableBuilder<String?>(
+            valueListenable: widget.captured,
+            builder: (context, value, _) {
+              if (value == null) {
+                return const Text(
+                  'autocapitalize = <not captured yet — tap the field>',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 13),
+                );
+              }
+              return Text(
+                'autocapitalize = "$value"',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              );
+            },
           ),
-        );
-      },
-    );
-  }
-}
-
-class _CapturedAttributesPanel extends StatelessWidget {
-  const _CapturedAttributesPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<Map<String, String?>>(
-      valueListenable: _captured,
-      builder: (context, attrs, _) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            border: Border.all(color: Colors.grey.shade400),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Attributes on Flutter\'s hidden <input> (captured on focusin)',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              if (attrs.isEmpty)
-                const Text('Tap a field above to capture.')
-              else
-                ...attrs.entries.map(
-                  (e) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      '${e.key} = ${e.value == null ? "<not set>" : '"${e.value}"'}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

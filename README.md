@@ -1,19 +1,21 @@
-# Flutter web — input attributes not applied to hidden editing input
+# Flutter web — `TextCapitalization` not applied to the hidden editing input
 
-Minimal reproduction of two Flutter web bugs that affect Chromebook / Android
-virtual keyboards (Gboard OSK):
+Minimal reproduction of a Flutter web bug that affects the Chromebook
+on-screen keyboard (OSK):
 
-1. **`TextCapitalization.none` is ignored.** Flutter web does not write any
-   `autocapitalize` attribute on its hidden `<input class="flt-text-editing">`
-   element, so the platform IME falls back to its default. On Chromebook OSK
-   that means the first letter is auto-capitalized regardless of what we pass
-   on the Dart side.
-2. **`enableSuggestions: false` is not enough to silence the Gboard
-   suggestion strip.** Flutter web sets `autocomplete="on"` on the editing
-   input (and leaves `spellcheck` unset), so Gboard still shows predictions.
-   Already reported and closed as "not Flutter's problem" in
-   [flutter/flutter#182535](https://github.com/flutter/flutter/issues/182535) —
-   included here because the same DOM-level workaround handles both.
+**`TextCapitalization.none` is ignored.** Flutter web does not write any
+`autocapitalize` attribute on its hidden `<input class="flt-text-editing">`
+element, so the platform IME falls back to its default. On Chromebook OSK
+that means the first letter is auto-capitalized regardless of what is
+passed on the Dart side, diverging from iOS (where the engine *does* set
+the attribute).
+
+> A separate symptom — the Gboard suggestion strip showing even with
+> `enableSuggestions: false` — turned out to be a Gboard policy issue, not
+> an attribute-level one (Gboard ignores `autocomplete`/`spellcheck`
+> regardless of who sets them). Already closed as such in
+> [flutter/flutter#182535](https://github.com/flutter/flutter/issues/182535).
+> This PoC is scoped to the `autocapitalize` bug only.
 
 ## Repro
 
@@ -27,39 +29,36 @@ Or run locally:
 flutter run -d chrome
 ```
 
-Tap into either text field. A panel at the bottom of the page reads back
-the live attributes on Flutter's hidden `<input class="flt-text-editing">`
-element (captured via a `focusin` listener registered from Dart through
-`package:web` — no DevTools or paste-in snippet required).
+The page has two text fields, **both configured identically on the Dart
+side** (`TextCapitalization.none`). The only difference is the workaround:
+
+- **Field 1 — Flutter default.** `autocapitalize` is never written.
+- **Field 2 — workaround applied.** A `focusin` listener (registered from
+  Dart via `package:web`) stamps `autocapitalize="none"` on the hidden
+  editing input when this field is focused.
+
+Each field reads back the `autocapitalize` attribute its editing input
+actually carries, so the difference is visible without DevTools.
 
 ### Expected
 
-```
-autocapitalize = "none"
-autocorrect    = "off"
-autocomplete   = "off"
-spellcheck     = "false"
-```
+Both fields should report `autocapitalize = "none"`, and on a Chromebook
+OSK both should start in lowercase.
 
 ### Actual (Flutter 3.41.7)
 
-```
-autocapitalize = <not set>     ← missing entirely
-autocorrect    = "off"         ← respected
-autocomplete   = "on"          ← ignored
-spellcheck     = <not set>     ← never set
-```
+- Field 1: `autocapitalize = <not set>` → Chromebook OSK auto-capitalizes
+  the first letter.
+- Field 2: `autocapitalize = "none"` → Chromebook OSK starts lowercase.
 
 On a **Chromebook** with the on-screen keyboard active (Settings →
-Accessibility → Keyboard → Enable on-screen keyboard), the visible
-symptoms are:
+Accessibility → Keyboard → Enable on-screen keyboard), field 1 engages
+the Shift key at the start of typing while field 2 does not.
 
-- Shift key engaged at start of typing → first letter capitalized.
-- Suggestion strip with autocomplete predictions visible above the keys.
-
-Desktop Chrome with a hardware keyboard will *show* the missing/wrong
-attributes in the panel but won't reproduce the visible symptoms —
-`autocapitalize` only affects virtual keyboards per the HTML spec.
+Desktop Chrome with a hardware keyboard will *show* the attribute
+difference in each field's read-out but won't reproduce the visible
+symptom — `autocapitalize` only affects virtual keyboards per the HTML
+spec.
 
 ## Root cause in the Flutter web engine
 
@@ -67,7 +66,7 @@ All references below are to
 `engine/src/flutter/lib/web_ui/lib/src/engine/text_editing/text_editing.dart`
 in the Flutter SDK at version 3.41.7 (engine revision `7a53c052bc`).
 
-### 1. `autocapitalize` — implementation exists, but only the iOS and Android strategies call it
+### The implementation exists, but only the iOS and Android strategies call it
 
 `TextCapitalizationConfig.setAutocapitalizeAttribute` in
 `text_capitalization.dart:60` correctly maps `TextCapitalization.none` →
@@ -96,10 +95,10 @@ else              → GloballyPositionedTextEditingStrategy  // does NOT  ← Ch
 
 A Chromebook reports as Blink + Linux/CrOS, falls into the final `else`,
 and ends up with `GloballyPositionedTextEditingStrategy` — which never
-sets the attribute. That's why the DevTools panel shows `autocapitalize`
+sets the attribute. That's why each field's read-out shows `autocapitalize`
 as `<not set>` on Chromebook (and on every desktop Chrome).
 
-#### Why Chromebook lands there — UA detection trace
+### Why Chromebook lands there — UA detection trace
 
 Real Chrome OS User Agent (Chrome 137):
 
@@ -139,75 +138,21 @@ complete upstream fix should also introduce `OperatingSystem.chromeOS`
 `hasOnScreenKeyboard` flag — and route it through the
 `AndroidTextEditingStrategy` codepath for IME purposes.
 
-### 2. `autocomplete` — hardcoded `"on"` when autofill info is present, no way to opt out
-
-Two locations write `autocomplete`:
-
-**`AutofillInfo.applyToDomElement` (line 531/541):**
-
-```dart
-element.autocomplete = autofillHint ?? 'on';   // ← forces "on" with no opt-out
-```
-
-**`DefaultTextEditingStrategy.applyConfiguration` (line 1362–1370):**
-
-```dart
-final AutofillInfo? autofill = config.autofill;
-if (autofill != null) {
-  autofill.applyToDomElement(activeDomElement, focusedElement: true);
-} else {
-  activeDomElement.setAttribute('autocomplete', 'off');   // only when no autofill config
-}
-```
-
-A Flutter `TextField` populates `AutofillInfo` for nearly every case, so
-the first branch runs and the attribute is forced to `"on"` unless the
-caller provides a specific HTML autocomplete hint. The Dart-side
-`enableSuggestions: false` never reaches this codepath.
-
-### 3. `spellcheck` — never set
-
-A grep for `'spellcheck'` / `spellCheck` across the web engine's
-`text_editing/` directory returns **zero hits**. The attribute is simply
-not produced.
-
-### 4. `enableSuggestions` — sent by the framework, ignored by the web engine
-
-The framework serializes `enableSuggestions` into
-`TextInputConfiguration.toJson` and dispatches it over the platform
-channel, but the web engine never reads it. The only related flag the
-web engine consumes is `config.autocorrect` (line 1372–1373).
-
-### Summary
-
-| Attribute | Dart-side knob | Web engine behavior | Gap |
-|---|---|---|---|
-| `autocapitalize` | `TextCapitalization` | Set only in iOS/Android strategies | Missing on Chromebook (and every desktop browser) |
-| `autocorrect` | `autocorrect: bool` | Writes `"on"`/`"off"` from `config.autocorrect` | ✅ Works |
-| `autocomplete` | `enableSuggestions: bool` (intent) | Hardcoded `"on"` when autofill present | Ignores `enableSuggestions`; no path to "off" |
-| `spellcheck` | `enableSuggestions: bool` (intent) | Never set | Not handled |
-
-### Proposed upstream fix
+## Proposed upstream fix
 
 Two layers — both small.
 
-**1. Apply the attributes from the base strategy.** In
+**1. Apply the attribute from the base strategy.** In
 `DefaultTextEditingStrategy.applyConfiguration`, after the `autocorrect`
 line (1373):
 
 ```dart
 config.textCapitalization.setAutocapitalizeAttribute(activeDomElement);
-if (!config.enableSuggestions) {
-  activeDomElement.setAttribute('autocomplete', 'off');
-  activeDomElement.setAttribute('spellcheck', 'false');
-}
 ```
 
-Plus: parse `enableSuggestions` from the framework message in
-`InputConfiguration.fromFrameworkMessage` (currently dropped on the
-floor). Once the base `applyConfiguration` writes `autocapitalize`, the
-iOS and Android-specific overrides become redundant and can be deleted
-in the same patch.
+Once the base `applyConfiguration` writes `autocapitalize`, the iOS and
+Android-specific overrides become redundant and can be deleted in the
+same patch.
 
 **2. Detect Chrome OS as a virtual-keyboard platform.** Add detection
 in `detectOperatingSystem` (`browser_detection.dart:150`) — Chrome OS
@@ -226,10 +171,10 @@ needed for any other IME-related code that branches on
 
 ## Workaround
 
-Until the engine is fixed, stamp the attributes from Dart via
-`package:web` after a post-frame callback, on every focus of the
-field. This is purely an HTML-level workaround and does not require
-patching Flutter itself.
+Until the engine is fixed, stamp `autocapitalize` from Dart via
+`package:web` on focus of the field (what Field 2 demonstrates). This is
+purely an HTML-level workaround and does not require patching Flutter
+itself.
 
 ## Environment
 
