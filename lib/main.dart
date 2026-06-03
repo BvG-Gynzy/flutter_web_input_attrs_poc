@@ -103,8 +103,66 @@ class PocHome extends StatelessWidget {
               title: '2. Workaround applied on focus',
               captured: _capturedWorkaround,
             ),
+            const SizedBox(height: 24),
+            const _NativeInputSection(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A genuine browser `<input autocapitalize="none">` embedded via
+/// [HtmlElementView], bypassing Flutter's text-editing machinery
+/// entirely. It is the control: if the Chromebook OSK *still* opens with
+/// Shift active for this native input, the residual capitalization is a
+/// Chrome OS OSK bug, not something Flutter (or our workaround) causes.
+class _NativeInputSection extends StatelessWidget {
+  const _NativeInputSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        border: Border.all(color: Colors.blue.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '3. Native <input autocapitalize="none"> (control)',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Not a Flutter TextField — a raw browser input. If the OSK '
+            'still capitalizes here, it is a Chrome OS bug.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 40,
+            child: HtmlElementView.fromTagName(
+              tagName: 'input',
+              onElementCreated: (Object element) {
+                (element as web.HTMLElement)
+                  ..setAttribute('type', 'text')
+                  ..setAttribute('autocapitalize', 'none')
+                  ..setAttribute('autocomplete', 'off')
+                  ..setAttribute('placeholder', 'Native input — type here')
+                  ..setAttribute(
+                    'style',
+                    'width:100%;height:40px;font-size:16px;'
+                        'box-sizing:border-box;padding:8px;'
+                        'border:1px solid #90a4ae;border-radius:4px;',
+                  );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
