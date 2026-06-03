@@ -40,6 +40,8 @@ final _capturedWorkaround = ValueNotifier<String?>(null);
 // ignore: unused_element
 web.MutationObserver? _observer;
 
+void _log(String msg) => web.console.log('[osk] $msg'.toJS);
+
 /// Finds the flt-text-editing input in [el] or its descendants.
 web.Element? _editingInput(web.Element el) {
   if ((el.getAttribute('class') ?? '').contains('flt-text-editing')) return el;
@@ -48,25 +50,34 @@ web.Element? _editingInput(web.Element el) {
 
 void main() {
   if (kIsWeb) {
-    // Primary fix for the hide -> reshow case: Flutter recreates its
-    // editing element on blur, so on reshow it has no autocapitalize and
-    // the OSK reads the missing attribute (caps) before focusin can stamp
-    // it. Stamp at DOM-insertion instead — before .focus() and the OSK
-    // read — so the fresh element behaves like a persistent native input.
-    // _activeField is set by the field's FocusNode listener *before*
-    // Flutter inserts the element, so we know which field it belongs to.
+    // DIAGNOSTIC build: log the editing-element lifecycle on focus / blur /
+    // reshow so we can see why insertion-time stamping does not stick.
     _observer =
         web.MutationObserver(
           (JSArray<web.MutationRecord> records, web.MutationObserver _) {
-            if (_activeField.value != _Field.workaround) return;
             for (final record in records.toDart) {
               final added = record.addedNodes;
               for (var i = 0; i < added.length; i++) {
                 final node = added.item(i);
-                if (node != null && node.isA<web.Element>()) {
-                  _editingInput(
-                    node as web.Element,
-                  )?.setAttribute('autocapitalize', 'none');
+                if (node == null || !node.isA<web.Element>()) continue;
+                final input = _editingInput(node as web.Element);
+                if (input == null) continue;
+                _log(
+                  'INSERT input; activeField=${_activeField.value}; '
+                  'autocap-before=${input.getAttribute('autocapitalize')}',
+                );
+                input.setAttribute('autocapitalize', 'none');
+                _log(
+                  '  stamped; autocap-after='
+                  '${input.getAttribute('autocapitalize')}',
+                );
+              }
+              final removed = record.removedNodes;
+              for (var i = 0; i < removed.length; i++) {
+                final node = removed.item(i);
+                if (node == null || !node.isA<web.Element>()) continue;
+                if (_editingInput(node as web.Element) != null) {
+                  _log('REMOVE input');
                 }
               }
             }
@@ -85,16 +96,29 @@ void main() {
         if (!(el.getAttribute('class') ?? '').contains('flt-text-editing')) {
           return;
         }
+        _log(
+          'FOCUSIN; activeField=${_activeField.value}; '
+          'autocap-before=${el.getAttribute('autocapitalize')}',
+        );
+        el.setAttribute('autocapitalize', 'none');
+        if (_activeField.value == _Field.workaround) {
+          _capturedWorkaround.value = el.getAttribute('autocapitalize');
+        } else if (_activeField.value == _Field.plain) {
+          _capturedPlain.value = el.getAttribute('autocapitalize');
+        }
+      }.toJS,
+    );
 
-        switch (_activeField.value) {
-          case _Field.workaround:
-            // Fallback stamp (element reuse) + capture.
-            el.setAttribute('autocapitalize', 'none');
-            _capturedWorkaround.value = el.getAttribute('autocapitalize');
-          case _Field.plain:
-            _capturedPlain.value = el.getAttribute('autocapitalize');
-          case _Field.none:
-            break;
+    web.document.addEventListener(
+      'focusout',
+      (web.Event event) {
+        final target = event.target;
+        if (target != null &&
+            target.isA<web.Element>() &&
+            ((target as web.Element).getAttribute('class') ?? '').contains(
+              'flt-text-editing',
+            )) {
+          _log('FOCUSOUT input');
         }
       }.toJS,
     );
