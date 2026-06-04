@@ -114,6 +114,19 @@
     <textarea autocapitalize="none" autocomplete="off" spellcheck="false" rows="2" placeholder="type here"></textarea>
   </div>
 
+  <div class="case">
+    <h2>C3 — "Nuclear combo" (PRO-2608)</h2>
+    <code>&lt;input autocapitalize="none" autocorrect="off" autocomplete="one-time-code" spellcheck="false"&gt;</code>
+    <p class="hint">
+      Native HTML equivalent of the Flutter "nuclear combo": autocorrect /
+      enableSuggestions off + keyboardType visiblePassword +
+      SpellCheckConfiguration.disabled + autofillHints oneTimeCode. The
+      oneTimeCode hint maps to autocomplete="one-time-code", which browsers
+      hard-disable predictions for.
+    </p>
+    <input autocapitalize="none" autocorrect="off" autocomplete="one-time-code" spellcheck="false" placeholder="type here" />
+  </div>
+
   <p class="hint">
     Tip: reload between fields if the OSK keeps its state. Record which case
     (if any) starts lowercase AND hides the suggestion strip.
