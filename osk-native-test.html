@@ -127,6 +127,49 @@
     <input autocapitalize="none" autocorrect="off" autocomplete="one-time-code" spellcheck="false" placeholder="type here" />
   </div>
 
+  <div class="group">D. Autofill bar (key / card / pin) — normal-text candidates</div>
+
+  <p class="hint">
+    Goal: hide the password/payment/address autofill bar while keeping a
+    normal text keyboard (no <code>type="search"</code>). Focus each field and
+    note whether the autofill bar appears above the keyboard.
+  </p>
+
+  <div class="case">
+    <h2>D1 — readonly-until-focus (stays type="text")</h2>
+    <code>&lt;input type="text" readonly onfocus="removeAttribute('readonly')"&gt;</code>
+    <p class="hint">
+      Field is read-only at focus time, so it is not autofill-eligible; the
+      attribute is removed on focus so typing still works.
+    </p>
+    <input
+      type="text"
+      autocapitalize="none"
+      autocomplete="off"
+      spellcheck="false"
+      readonly
+      onfocus="this.removeAttribute('readonly')"
+      onblur="this.setAttribute('readonly', 'readonly')"
+      placeholder="type here"
+    />
+  </div>
+
+  <div class="case">
+    <h2>D2 — contenteditable div (not a form control)</h2>
+    <code>&lt;div contenteditable="true" role="textbox"&gt;</code>
+    <p class="hint">
+      The autofill framework targets &lt;input&gt;/&lt;textarea&gt;, not
+      contenteditable elements.
+    </p>
+    <div
+      contenteditable="true"
+      role="textbox"
+      autocapitalize="none"
+      spellcheck="false"
+      style="min-height: 24px;"
+    ></div>
+  </div>
+
   <p class="hint">
     Tip: reload between fields if the OSK keeps its state. Record which case
     (if any) starts lowercase AND hides the suggestion strip.
